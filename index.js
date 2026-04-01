@@ -55,7 +55,7 @@ async function lookupDuns(companyName, countryFr) {
 
   // Méthode 2 : DuckDuckGo search
   try {
-    const query = `"${companyName}" "${countryEn}" DUNS number site:dnb.com OR site:opencorporates.com`;
+    const query = `"${companyName}" ${countryEn} DUNS number`;
     const res = await fetch(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`, {
       headers: {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
