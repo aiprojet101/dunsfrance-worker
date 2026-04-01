@@ -86,7 +86,8 @@ async function lookupDuns(companyName, countryFr) {
     }
   } catch (e) { console.error("[lookup] Opencorporates:", e.message); }
 
-  // Méthode 4 : Playwright sur D&B + Bing
+  // Méthode 4 : Playwright sur UPIK + D&B + Bing
+  console.log("[lookup] Méthode 4 Playwright démarrée v2");
   const browser = await chromium.launch({
     headless: true,
     args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage", "--disable-blink-features=AutomationControlled"],
@@ -141,9 +142,9 @@ async function lookupDuns(companyName, countryFr) {
     } catch (e) { console.error("[lookup] Bing:", e.message); }
 
   } catch (e) {
-    console.error("[lookup] Playwright:", e.message);
+    console.error("[lookup] Playwright erreur globale:", e.message);
   } finally {
-    await browser.close();
+    await browser.close().catch(e => console.error("[lookup] browser.close:", e.message));
   }
 
   return null;
