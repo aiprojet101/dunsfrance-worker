@@ -22,55 +22,81 @@ const COUNTRY_MAP = {
 
 async function lookupDuns(companyName, countryFr) {
   const countryEn = COUNTRY_MAP[countryFr] ?? countryFr;
-  const browser = await chromium.launch({ headless: true });
+
+  const browser = await chromium.launch({
+    headless: true,
+    args: [
+      "--no-sandbox",
+      "--disable-setuid-sandbox",
+      "--disable-blink-features=AutomationControlled",
+      "--disable-dev-shm-usage",
+      "--disable-http2",
+    ],
+  });
+
   try {
     const context = await browser.newContext({
       userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
       locale: "en-US",
+      extraHTTPHeaders: {
+        "Accept-Language": "en-US,en;q=0.9",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+      },
     });
+
+    // Masquer webdriver
+    await context.addInitScript(() => {
+      Object.defineProperty(navigator, "webdriver", { get: () => undefined });
+    });
+
     const page = await context.newPage();
 
-    await page.goto("https://www.dnb.com/de-de/upik-en.html", {
-      waitUntil: "networkidle",
-      timeout: 45000,
-    });
-
-    // Accept cookies if banner appears
+    // Essai 1 : upik.de (portail européen D&B, moins protégé)
     try {
-      const cookieBtn = page.locator("button:has-text('Accept'), button:has-text('Akzeptieren'), #onetrust-accept-btn-handler").first();
-      await cookieBtn.click({ timeout: 5000 });
-      await page.waitForTimeout(1000);
-    } catch { /* pas de bandeau */ }
+      await page.goto("https://www.upik.de/en/duns_search.html", {
+        waitUntil: "domcontentloaded",
+        timeout: 30000,
+      });
 
-    // Fill company name
-    const nameInput = page.locator("input[name='name'], input[placeholder*='ompany'], #companyName, input[id*='name']").first();
-    await nameInput.waitFor({ timeout: 20000 });
-    await nameInput.fill(companyName);
-
-    // Select country
-    try {
-      const sel = page.locator("select[name='country'], select[id*='country'], #country").first();
-      await sel.selectOption({ label: countryEn });
-    } catch {
+      // Accept cookies
       try {
-        const inp = page.locator("input[name='country'], input[placeholder*='ountry']").first();
-        await inp.fill(countryEn);
-      } catch { /* champ pays non trouvé */ }
+        await page.locator("button:has-text('Accept'), button:has-text('Akzeptieren'), #acceptBtn, .accept-btn").first().click({ timeout: 4000 });
+        await page.waitForTimeout(800);
+      } catch { /* pas de bandeau */ }
+
+      const nameInput = page.locator("input[name='firmname'], input[name='company'], input[id*='firm'], input[id*='name'], input[type='text']").first();
+      await nameInput.waitFor({ timeout: 15000 });
+      await nameInput.fill(companyName);
+
+      // Pays si champ présent
+      try {
+        const sel = page.locator("select[name='land'], select[name='country'], select[id*='country']").first();
+        await sel.selectOption({ label: countryEn });
+      } catch { /* champ pays absent */ }
+
+      await page.locator("button[type='submit'], input[type='submit'], button:has-text('Search'), input[value*='Search']").first().click();
+      await page.waitForTimeout(5000);
+
+      const bodyText = await page.locator("body").innerText();
+      const m1 = bodyText.match(/\b(\d{9})\b/);
+      if (m1) return m1[1];
+      const m2 = bodyText.match(/\b\d{2}-\d{3}-\d{4}\b/);
+      if (m2) return m2[0].replace(/-/g, "");
+    } catch (e) {
+      console.error("[lookup] upik.de échoué:", e.message);
     }
 
-    // Submit
-    await page.locator("button[type='submit'], input[type='submit'], button:has-text('Search'), button:has-text('Suchen')").first().click();
-    await page.waitForTimeout(4000);
-
-    const bodyText = await page.locator("body").innerText();
-
-    // DUNS 9 chiffres consécutifs
-    const m1 = bodyText.match(/\b(\d{9})\b/);
-    if (m1) return m1[1];
-
-    // Format xx-xxx-xxxx
-    const m2 = bodyText.match(/\b\d{2}-\d{3}-\d{4}\b/);
-    if (m2) return m2[0].replace(/-/g, "");
+    // Essai 2 : dnb.com/upik via URL directe avec paramètres GET
+    try {
+      const searchUrl = `https://www.dnb.com/de-de/upik-en.html?name=${encodeURIComponent(companyName)}&country=${encodeURIComponent(countryEn)}`;
+      await page.goto(searchUrl, { waitUntil: "domcontentloaded", timeout: 30000 });
+      await page.waitForTimeout(4000);
+      const bodyText = await page.locator("body").innerText();
+      const m1 = bodyText.match(/\b(\d{9})\b/);
+      if (m1) return m1[1];
+    } catch (e) {
+      console.error("[lookup] dnb.com échoué:", e.message);
+    }
 
     return null;
   } finally {
