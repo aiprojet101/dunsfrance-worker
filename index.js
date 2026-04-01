@@ -86,7 +86,7 @@ async function lookupDuns(companyName, countryFr) {
     }
   } catch (e) { console.error("[lookup] Opencorporates:", e.message); }
 
-  // Méthode 4 : Playwright sur Bing (moteur moins protégé)
+  // Méthode 4 : Playwright sur D&B + Bing
   const browser = await chromium.launch({
     headless: true,
     args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage", "--disable-blink-features=AutomationControlled"],
@@ -94,17 +94,43 @@ async function lookupDuns(companyName, countryFr) {
   try {
     const context = await browser.newContext({
       userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+      locale: "en-US",
     });
     await context.addInitScript(() => { Object.defineProperty(navigator, "webdriver", { get: () => undefined }); });
     const page = await context.newPage();
-    const q = encodeURIComponent(`"${companyName}" "${countryEn}" DUNS 9 digits`);
-    await page.goto(`https://www.bing.com/search?q=${q}`, { waitUntil: "domcontentloaded", timeout: 25000 });
-    await page.waitForTimeout(2000);
-    const text = await page.locator("body").innerText();
-    const duns = extractDuns(text);
-    if (duns) { console.log("[lookup] Bing OK"); return duns; }
+
+    // 4a : D&B company search
+    try {
+      const dnbUrl = `https://www.dnb.com/site-search-results.html?term=${encodeURIComponent(companyName)}&country=${encodeURIComponent(countryEn)}`;
+      await page.goto(dnbUrl, { waitUntil: "domcontentloaded", timeout: 20000 });
+      await page.waitForTimeout(3000);
+      const dnbText = await page.locator("body").innerText();
+      const duns = extractDuns(dnbText);
+      if (duns) { console.log("[lookup] D&B Playwright OK"); return duns; }
+    } catch (e) { console.error("[lookup] D&B Playwright:", e.message); }
+
+    // 4b : Bing
+    try {
+      const q = encodeURIComponent(`${companyName} ${countryEn} DUNS number`);
+      await page.goto(`https://www.bing.com/search?q=${q}`, { waitUntil: "domcontentloaded", timeout: 20000 });
+      await page.waitForTimeout(2000);
+      const text = await page.locator("body").innerText();
+      const duns = extractDuns(text);
+      if (duns) { console.log("[lookup] Bing OK"); return duns; }
+    } catch (e) { console.error("[lookup] Bing:", e.message); }
+
+    // 4c : Google
+    try {
+      const q = encodeURIComponent(`${companyName} ${countryEn} DUNS`);
+      await page.goto(`https://www.google.com/search?q=${q}`, { waitUntil: "domcontentloaded", timeout: 20000 });
+      await page.waitForTimeout(2000);
+      const text = await page.locator("body").innerText();
+      const duns = extractDuns(text);
+      if (duns) { console.log("[lookup] Google OK"); return duns; }
+    } catch (e) { console.error("[lookup] Google:", e.message); }
+
   } catch (e) {
-    console.error("[lookup] Bing:", e.message);
+    console.error("[lookup] Playwright:", e.message);
   } finally {
     await browser.close();
   }
