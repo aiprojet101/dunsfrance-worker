@@ -99,7 +99,28 @@ async function lookupDuns(companyName, countryFr) {
     await context.addInitScript(() => { Object.defineProperty(navigator, "webdriver", { get: () => undefined }); });
     const page = await context.newPage();
 
-    // 4a : D&B company search
+    // 4a : UPIK (D&B Europe) via Playwright
+    try {
+      await page.goto("https://www.upik.de/en/search_company.html", { waitUntil: "domcontentloaded", timeout: 20000 });
+      await page.waitForTimeout(1500);
+      // Remplir le formulaire UPIK
+      const companyInput = page.locator('input[name="company"], input[id="company"], input[placeholder*="company" i]').first();
+      const countrySelect = page.locator('select[name="country"], select[id="country"]').first();
+      if (await companyInput.isVisible().catch(() => false)) {
+        await companyInput.fill(companyName);
+        if (await countrySelect.isVisible().catch(() => false)) {
+          await countrySelect.selectOption({ label: countryEn }).catch(() => {});
+        }
+        await page.keyboard.press("Enter");
+        await page.waitForTimeout(3000);
+        const upikText = await page.locator("body").innerText();
+        const duns = extractDuns(upikText);
+        if (duns) { console.log("[lookup] UPIK Playwright OK"); return duns; }
+        console.log("[lookup] UPIK: pas de DUNS trouvé, résultat:", upikText.substring(0, 200));
+      }
+    } catch (e) { console.error("[lookup] UPIK Playwright:", e.message); }
+
+    // 4b : D&B company search
     try {
       const dnbUrl = `https://www.dnb.com/site-search-results.html?term=${encodeURIComponent(companyName)}&country=${encodeURIComponent(countryEn)}`;
       await page.goto(dnbUrl, { waitUntil: "domcontentloaded", timeout: 20000 });
@@ -109,7 +130,7 @@ async function lookupDuns(companyName, countryFr) {
       if (duns) { console.log("[lookup] D&B Playwright OK"); return duns; }
     } catch (e) { console.error("[lookup] D&B Playwright:", e.message); }
 
-    // 4b : Bing
+    // 4c : Bing
     try {
       const q = encodeURIComponent(`${companyName} ${countryEn} DUNS number`);
       await page.goto(`https://www.bing.com/search?q=${q}`, { waitUntil: "domcontentloaded", timeout: 20000 });
@@ -118,16 +139,6 @@ async function lookupDuns(companyName, countryFr) {
       const duns = extractDuns(text);
       if (duns) { console.log("[lookup] Bing OK"); return duns; }
     } catch (e) { console.error("[lookup] Bing:", e.message); }
-
-    // 4c : Google
-    try {
-      const q = encodeURIComponent(`${companyName} ${countryEn} DUNS`);
-      await page.goto(`https://www.google.com/search?q=${q}`, { waitUntil: "domcontentloaded", timeout: 20000 });
-      await page.waitForTimeout(2000);
-      const text = await page.locator("body").innerText();
-      const duns = extractDuns(text);
-      if (duns) { console.log("[lookup] Google OK"); return duns; }
-    } catch (e) { console.error("[lookup] Google:", e.message); }
 
   } catch (e) {
     console.error("[lookup] Playwright:", e.message);
